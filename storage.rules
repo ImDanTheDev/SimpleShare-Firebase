@@ -1,0 +1,42 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+      match /users/{uid}/pfps/{imageID} {
+        allow read;
+        allow create: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.size < 10 * 1024 * 1024
+          && (request.resource.contentType.matches('image/png')
+                || request.resource.contentType.matches('image/jpeg'));
+        allow delete: if request.auth != null
+          && request.auth.uid == uid;
+      }
+      match /files/{fileId} {
+        allow get: if request.auth != null
+          && request.auth.uid != null
+          && resource != null
+          && resource.metadata != null
+          && resource.metadata.keys().hasAll(['owner', 'recipient'])
+          && (resource.metadata.owner == request.auth.uid
+              || resource.metadata.recipient == request.auth.uid)
+        allow create: if request.auth != null
+          && request.auth.uid != null
+          && request.resource != null
+          && request.resource.size < 20 * 1024 * 1024
+          && request.resource.metadata != null
+          && request.resource.metadata.keys().hasAll(['owner', 'recipient'])
+          && request.resource.metadata.owner == request.auth.uid
+          && request.resource.metadata.recipient != null;
+        allow delete: if request.auth != null
+          && request.auth.uid != null
+          && resource != null
+          && resource.metadata != null
+          && resource.metadata.keys().hasAll(['owner', 'recipient'])
+          && (resource.metadata.owner == request.auth.uid
+              || resource.metadata.recipient == request.auth.uid)
+      }
+    }
+  }
+}

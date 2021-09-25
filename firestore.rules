@@ -1,0 +1,202 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+      match /accounts/{userId} {
+          allow list: if isAuthenticated();
+          allow get: if isAuthenticated()
+            && doesAuthIdMatch(userId);
+          allow create: if isAuthenticated()
+            && doesAuthIdMatch(userId)
+            && isAccountComplete(request.resource.data);
+          allow update: if isAuthenticated()
+            && doesAuthIdMatch(userId)
+            && isAccountComplete(request.resource.data);
+          match /public/{publicDocId} {
+            allow list: if isAuthenticated();
+            allow get: if isAuthenticated();
+            allow create: if isAuthenticated()
+              && doesAuthIdMatch(userId)
+              && isPublicComplete(request.resource.data);
+            allow update: if isAuthenticated()
+              && doesAuthIdMatch(userId)
+              && isPublicComplete(request.resource.data);
+          }
+          match /private/{privateDocId} {
+            allow list: if isAuthenticated()
+              && doesAuthIdMatch(userId);
+            allow get: if isAuthenticated()
+              && doesAuthIdMatch(userId);
+            allow create: if isAuthenticated()
+              && doesAuthIdMatch(userId)
+              && isPrivateComplete(request.resource.data);
+            allow update: if isAuthenticated()
+              && doesAuthIdMatch(userId)
+              && isPrivateComplete(request.resource.data);
+          }
+          match /profiles/{profileId} {
+              allow list: if isAuthenticated();
+              allow get: if isAuthenticated();
+              allow create: if isAuthenticated()
+                && doesAuthIdMatch(userId)
+                && isProfileComplete(request.resource.data);
+              allow update: if isAuthenticated()
+                && doesAuthIdMatch(userId)
+                && isProfileComplete(request.resource.data);
+              allow delete: if isAuthenticated()
+                && doesAuthIdMatch(userId)
+                && !isDefaultProfile(profileId);
+          }
+      }
+      match /shares/{userId}/{profileId}/{shareId} {
+          allow list: if isAuthenticated()
+            && doesAuthIdMatch(userId);
+          allow get: if isAuthenticated()
+            && doesAuthIdMatch(userId)
+            && isUserRecipientOfShare(userId, resource.data);
+          allow create: if isAuthenticated()
+            && isShareComplete(request.resource.data)
+            && isShareIntact(request.resource.data)
+            && isUserRecipientOfShare(userId, request.resource.data)
+            && isUserSenderOfShare(request.auth.uid, request.resource.data);
+          allow delete: if isAuthenticated()
+            && doesAuthIdMatch(userId)
+            && isShareComplete(resource.data)
+            && isUserRecipientOfShare(userId, resource.data);
+      }
+      match /appInfo/appInfo {
+        allow read: if true;
+      }
+    }
+
+    function isAuthenticated() {
+        return request.auth != null;
+    }
+
+    function doesAuthIdMatch(userId) {
+        return request.auth.uid == userId
+    }
+
+    // Document Validation
+    function isAccountComplete(account) {
+        return account.keys().hasAll(['phoneNumber', 'isAccountComplete'])
+            && account.size() == 2
+            && account.isAccountComplete is bool
+            && account.isAccountComplete == true
+            && isPhoneNumberValid(account.phoneNumber);
+    }
+
+    // Determines what type of doc it is, and returns true if that doc is considered complete for its type.
+    function isPublicComplete(publicDoc) {
+      return isPublicGeneralInfoDoc(publicDoc) && isPublicGeneralInfoComplete(publicDoc);
+    }
+
+    // Returns true if the document is the PublicGeneralInfo doc.
+    function isPublicGeneralInfoDoc(doc) {
+      return doc.keys().hasAll(['displayName', 'isComplete'])
+        && doc.size() == 2;
+    }
+
+    // Returns true if the PublicGeneralInfo doc is complete.
+    function isPublicGeneralInfoComplete(publicInfo) {
+      return publicInfo.keys().hasAll(['displayName', 'isComplete'])
+        && publicInfo.size() == 2
+        && publicInfo.isComplete is bool
+        && publicInfo.isComplete == true
+        && isDisplayNameValid(publicInfo.displayName);
+    }
+
+    // Determines what type of doc it is, and returns true if that doc is considered complete for its type.
+    function isPrivateComplete(privateDoc) {
+      return isPrivateGeneralInfoDoc(privateDoc) && isPrivateGeneralInfoComplete(privateDoc);
+    }
+
+    // Returns true if the document is the PrivateGeneralInfo doc.
+    function isPrivateGeneralInfoDoc(doc) {
+      return doc.keys().hasAll(['phoneNumber', 'isComplete'])
+        && doc.size() == 2;
+    }
+
+    // Returns true if the PrivateGeneralInfo doc is complete.
+    function isPrivateGeneralInfoComplete(privateInfo) {
+      return privateInfo.keys().hasAll(['phoneNumber', 'isComplete'])
+        && privateInfo.size() == 2
+        && privateInfo.isComplete is bool
+        && privateInfo.isComplete == true
+        && isPhoneNumberValid(privateInfo.phoneNumber);
+    }
+
+    function isProfileComplete(profile) {
+        return profile.keys().hasAll(['name', 'pfp'])
+            && profile.size() == 2
+            && isProfileNameValid(profile.name);
+    }
+
+    function isShareComplete(share) {
+         return share.keys().hasAll(['fromProfileId', 'fromUid', 'toProfileId', 'toUid'])
+             && (share.size() >= 5 && share.size() <= 6) // Need one or two of these other fields: textContent, content, fileURL.
+             && ((
+               share.keys().hasAll(['textContent']) && isShareContentValid(share.textContent) && !share.keys().hasAll(['content'])
+             ) || (
+               share.keys().hasAll(['content']) && isShareContentValid(share.content) && !share.keys().hasAll(['textContent'])
+             ) || (
+               share.keys().hasAll(['fileURL'])
+             ));
+    }
+
+    function isShareIntact(share) {
+      return doesUserExist(share.fromUid)
+          && doesProfileExist(share.fromUid, share.fromProfileId)
+          && doesUserExist(share.toUid)
+          && doesProfileExist(share.toUid, share.toProfileId);
+    }
+
+    // Field Validation
+    function isPhoneNumberValid(phoneNumber) {
+        return phoneNumber is string
+            && phoneNumber.size() >= 2
+            && phoneNumber.size() <= 50;
+    }
+
+    function isDisplayNameValid(displayName) {
+        return displayName is string
+            && displayName.size() >= 2
+            && displayName.size() <= 20;
+    }
+
+    function isProfileNameValid(profileName) {
+        return profileName is string
+            && profileName.size() >= 2
+            && profileName.size() <= 20;
+    }
+
+    function isShareContentValid(shareContent) {
+        return shareContent is string
+            && shareContent.size() <= 2000;
+    }
+
+    // Misc Validation
+    function isDefaultProfile(profileId) {
+        return profileId == 'default';
+    }
+
+    function isUserRecipientOfShare(userId, share) {
+        return share.toUid == userId;
+    }
+
+    function isUserSenderOfShare(userId, share) {
+        return share.fromUid == userId;
+    }
+
+    // Indirect Reference Validation (document id's that are not stored as 'reference' types, but as strings)
+    function doesUserExist(userId) {
+        return exists(/databases/$(database)/documents/accounts/$(userId));
+    }
+
+    function doesProfileExist(userId, profileId) {
+        return exists(/databases/$(database)/documents/accounts/$(userId)/profiles/$(profileId));
+    }
+  }
+}
+
