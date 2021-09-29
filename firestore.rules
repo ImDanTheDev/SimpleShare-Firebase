@@ -18,10 +18,10 @@ service cloud.firestore {
             allow get: if isAuthenticated();
             allow create: if isAuthenticated()
               && doesAuthIdMatch(userId)
-              && isPublicComplete(request.resource.data);
+              && isPublicComplete(userId, request.resource.data);
             allow update: if isAuthenticated()
               && doesAuthIdMatch(userId)
-              && isPublicComplete(request.resource.data);
+              && isPublicComplete(userId, request.resource.data);
           }
           match /private/{privateDocId} {
             allow list: if isAuthenticated()
@@ -46,7 +46,7 @@ service cloud.firestore {
                 && isProfileComplete(request.resource.data);
               allow delete: if isAuthenticated()
                 && doesAuthIdMatch(userId)
-                && !isDefaultProfile(profileId);
+                && !isDefaultProfile(userId, profileId);
           }
       }
       match /shares/{userId}/{profileId}/{shareId} {
@@ -88,23 +88,24 @@ service cloud.firestore {
     }
 
     // Determines what type of doc it is, and returns true if that doc is considered complete for its type.
-    function isPublicComplete(publicDoc) {
-      return isPublicGeneralInfoDoc(publicDoc) && isPublicGeneralInfoComplete(publicDoc);
+    function isPublicComplete(uid, publicDoc) {
+      return isPublicGeneralInfoDoc(publicDoc) && isPublicGeneralInfoComplete(uid, publicDoc);
     }
 
     // Returns true if the document is the PublicGeneralInfo doc.
     function isPublicGeneralInfoDoc(doc) {
-      return doc.keys().hasAll(['displayName', 'isComplete'])
-        && doc.size() == 2;
+      return doc.keys().hasAll(['displayName', 'isComplete', 'defaultProfileId', 'profilePositions'])
+        && doc.size() == 4;
     }
 
     // Returns true if the PublicGeneralInfo doc is complete.
-    function isPublicGeneralInfoComplete(publicInfo) {
-      return publicInfo.keys().hasAll(['displayName', 'isComplete'])
-        && publicInfo.size() == 2
+    function isPublicGeneralInfoComplete(uid, publicInfo) {
+      return publicInfo.keys().hasAll(['displayName', 'isComplete', 'defaultProfileId', 'profilePositions'])
+        && publicInfo.size() == 4
         && publicInfo.isComplete is bool
         && publicInfo.isComplete == true
-        && isDisplayNameValid(publicInfo.displayName);
+        && isDisplayNameValid(publicInfo.displayName)
+        && doesProfileExist(uid, publicInfo.defaultProfileId);
     }
 
     // Determines what type of doc it is, and returns true if that doc is considered complete for its type.
@@ -177,8 +178,8 @@ service cloud.firestore {
     }
 
     // Misc Validation
-    function isDefaultProfile(profileId) {
-        return profileId == 'default';
+    function isDefaultProfile(userId, profileId) {
+        return get(/databases/$(database)/documents/accounts/$(userId)/public/GeneralInfo).data.defaultProfileId == profileId;
     }
 
     function isUserRecipientOfShare(userId, share) {
