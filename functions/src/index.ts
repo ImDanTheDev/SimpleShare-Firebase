@@ -1,31 +1,36 @@
 import * as functions from 'firebase-functions';
 import {timingSafeEqual} from 'crypto';
 
-// // Start writing Firebase Functions
-// // https://firebase.google.com/docs/functions/typescript
-//
-// export const helloWorld = functions.https.onRequest((request, response) => {
-//   functions.logger.info('Hello logs!', {structuredData: true});
-//   response.send('Hello from Firebase!');
-// });
-
 import * as admin from 'firebase-admin';
 admin.initializeApp();
 
-export const addTimestamp = functions.firestore.document('/shares/{recipientId}/{recipientProfileId}/{shareId}').onCreate((snap, ctx) => {
-    const recipientId = ctx.params.recipientId;
+export const addTimestampAndCreateNotification = functions.firestore.document('/shares/{recipientId}/{recipientProfileId}/{shareId}')
+    .onCreate(async (snap, ctx) => {
+        const shareData = snap.data();
+        const fromProfileId = shareData.fromProfileId;
+        const fromUid = shareData.fromUid;
+        const senderGeneralInfo = await admin.firestore().collection('accounts').doc(fromUid).collection('public').doc('GeneralInfo').get();
+        const senderProfile = await admin.firestore().collection('accounts').doc(fromUid).collection('profiles').doc(fromProfileId).get();
 
-    const createdAtMillis = admin.firestore.Timestamp.now().toMillis();
-    const createdAt = new Date(createdAtMillis);
+        const createdAtMillis = admin.firestore.Timestamp.now().toMillis();
+        const createdAt = new Date(createdAtMillis);
 
-    admin.firestore().collection('shares').doc(recipientId).set({
-        last_share_received_at: createdAt,
+        const setLastShareReceivedAt = admin.firestore().collection('shares').doc(ctx.params.recipientId).set({
+            last_share_received_at: createdAt,
+        });
+
+        const setCreatedAt = snap.ref.set({
+            created_at: createdAt,
+        }, {merge: true});
+
+        const createNotification = admin.firestore().collection('accounts').doc(ctx.params.recipientId).collection('notifications').doc().create({
+            fromDisplayName: senderGeneralInfo.get('displayName'),
+            fromProfileName: senderProfile.get('name'),
+            share: snap.ref,
+        });
+
+        return Promise.all([setLastShareReceivedAt, setCreatedAt, createNotification]);
     });
-
-    return snap.ref.set({
-        created_at: createdAt,
-    }, {merge: true});
-});
 
 export const deleteShares = functions.https.onRequest(async (request, response) => {
     const fallbackMaxShareAge = 1 * 24 * 60 * 60 * 1000;

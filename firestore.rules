@@ -48,6 +48,14 @@ service cloud.firestore {
                 && doesAuthIdMatch(userId)
                 && !isDefaultProfile(userId, profileId);
           }
+          match /notifications/{notificationId} {
+            allow get: if isAuthenticated()
+              && doesAuthIdMatch(userId);
+            allow list: if isAuthenticated()
+              && doesAuthIdMatch(userId);
+            allow delete: if isAuthenticated()
+              && doesAuthIdMatch(userId);
+          }
       }
       match /shares/{userId}/{profileId}/{shareId} {
           allow list: if isAuthenticated()
@@ -62,7 +70,6 @@ service cloud.firestore {
             && isUserSenderOfShare(request.auth.uid, request.resource.data);
           allow delete: if isAuthenticated()
             && doesAuthIdMatch(userId)
-            && isShareComplete(resource.data)
             && isUserRecipientOfShare(userId, resource.data);
       }
       match /appInfo/appInfo {
